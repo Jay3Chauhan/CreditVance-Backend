@@ -20,7 +20,7 @@ pool_class = QueuePool
 if settings.is_sqlite:
     connect_args = {"check_same_thread": False}
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        settings.async_database_url,
         echo=settings.DB_ECHO,
         connect_args=connect_args,
     )
@@ -28,7 +28,7 @@ else:
     # Neon Serverless PostgreSQL with asyncpg
     # Neon requires SSL, typically 'require'
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        settings.async_database_url,
         echo=settings.DB_ECHO,
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,

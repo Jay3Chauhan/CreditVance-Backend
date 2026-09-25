@@ -8,8 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SyncTriggerRequest(BaseModel):
-    sync_tabs: bool = Field(True, description="Whether to also crawl 5 tabs for each card")
-    limit_cards: Optional[int] = Field(None, description="Optional limit for dry-run testing (e.g. 10 cards)")
+    sync_tabs: bool = Field(
+        False,
+        description="Set True to also deep-crawl all 5 perk tabs for each card (~15 min for all cards). Default False syncs all cards in ~10 seconds.",
+    )
+    limit_cards: Optional[int] = Field(
+        None,
+        description="Limit number of cards to crawl (e.g. 10). Leave null/empty for all 734 cards.",
+    )
 
 
 class SyncStatusResponse(BaseModel):

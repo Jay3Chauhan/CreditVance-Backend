@@ -64,6 +64,39 @@ class Settings(BaseSettings):
     def is_sqlite(self) -> bool:
         return self.DATABASE_URL.startswith("sqlite")
 
+    @property
+    def async_database_url(self) -> str:
+        """
+        Normalizes database URLs to async drivers.
+        Converts postgresql:// and postgres:// to postgresql+asyncpg://
+        and normalizes Neon SSL query parameters.
+        """
+        url = self.DATABASE_URL.strip()
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # Handle Neon/cloud parameters for asyncpg compatibility
+        if "sslmode=require" in url:
+            url = url.replace("sslmode=require", "ssl=require")
+        if "channel_binding=require" in url:
+            url = (
+                url.replace("&channel_binding=require", "")
+                .replace("channel_binding=require&", "")
+                .replace("channel_binding=require", "")
+            )
+        return url
+
+    @property
+    def clean_redis_url(self) -> str:
+        """Strips quotes and accidental REDIS_URL= prefix from REDIS_URL."""
+        url = self.REDIS_URL.strip()
+        if url.startswith("REDIS_URL="):
+            url = url.replace("REDIS_URL=", "", 1).strip()
+        url = url.strip("\"'")
+        return url
+
 
 # Global Singleton Settings Instance
 settings = Settings()

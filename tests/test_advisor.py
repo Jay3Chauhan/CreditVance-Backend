@@ -18,11 +18,11 @@ async def test_smart_advisor_recommendation(client: AsyncClient):
     token = login_res.json()["data"]["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 2. Get card ID for Infinia and Rubyx
-    cards_res = await client.get("/api/v1/cards")
-    cards = cards_res.json()["data"]
-    infinia = next(c for c in cards if c["slug"] == "hdfc-infinia-metal")
-    rubyx = next(c for c in cards if c["slug"] == "icici-rubyx-mastercard")
+    # 2. Get card details for Infinia and Rubyx
+    infinia_res = await client.get("/api/v1/cards/hdfc-infinia-metal")
+    infinia = infinia_res.json()["data"]
+    rubyx_res = await client.get("/api/v1/cards/icici-rubyx-mastercard")
+    rubyx = rubyx_res.json()["data"]
 
     # 3. Add Infinia and Rubyx to User's Wallet
     await client.post(

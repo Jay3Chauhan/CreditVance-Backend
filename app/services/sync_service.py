@@ -47,9 +47,28 @@ class SyncService:
         self,
         db: AsyncSession,
         sync_type: str = "scheduled",
-        sync_tabs: bool = True,
+        sync_tabs: bool = False,
         limit_cards: Optional[int] = None,
     ) -> Dict[str, Any]:
+        # Normalize limit_cards: 0 or negative means None (unlimited)
+        if limit_cards is not None and limit_cards <= 0:
+            limit_cards = None
+
+        # Clean up any stale 'running' audits older than 30 minutes
+        try:
+            stale_cutoff = datetime.now(timezone.utc)
+            stale_stmt = select(SyncAuditLog).where(SyncAuditLog.status == "running")
+            stale_audits = (await db.execute(stale_stmt)).scalars().all()
+            for sa in stale_audits:
+                # If running for more than 15 minutes, mark as interrupted
+                diff_seconds = (stale_cutoff - sa.started_at.replace(tzinfo=timezone.utc)).total_seconds()
+                if diff_seconds > 900:
+                    sa.status = "interrupted"
+                    sa.completed_at = stale_cutoff
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"Error cleaning stale audit logs: {e}")
+
         # 1. Acquire Distributed Lock
         lock_acquired = await redis_service.acquire_lock(
             SYNC_LOCK_KEY, ttl_seconds=settings.REDIS_SYNC_LOCK_TTL_SECONDS
@@ -79,7 +98,7 @@ class SyncService:
         errors_count = 0
 
         try:
-            logger.info(f"Starting sync job (id={audit.id}, type={sync_type})...")
+            logger.info(f"Starting sync job (id={audit.id}, type={sync_type}, tabs={sync_tabs}, limit={limit_cards})...")
 
             # 3. Ingest Categories & Banks from Calculator Taxonomy
             await self._sync_categories_and_banks(db)
@@ -109,11 +128,15 @@ class SyncService:
                     errors_count += 1
                     logger.error(f"Error upserting card {card_dict.get('slug')}: {e}")
 
+            # Commit master cards immediately so they are available in DB right away!
+            audit.cards_fetched = cards_processed
             await db.commit()
+            logger.info(f"Master cards successfully committed to DB! Total: {cards_processed}")
 
             # 6. Ingest Tabs (if enabled)
             if sync_tabs:
-                logger.info(f"Crawling tabs for {len(slug_to_id)} cards...")
+                logger.info(f"Crawling tabs for {len(slug_to_id)} cards (this will take several minutes)...")
+                processed_count = 0
                 for slug, card_id in slug_to_id.items():
                     for tab_name in VALID_TABS:
                         try:
@@ -127,8 +150,12 @@ class SyncService:
                             errors_count += 1
                             logger.warning(f"Error fetching tab '{tab_name}' for '{slug}': {e}")
 
-                    # Commit in small batches
-                    await db.commit()
+                    processed_count += 1
+                    # Commit in small batches of 10 cards
+                    if processed_count % 10 == 0:
+                        audit.tabs_fetched = tabs_processed
+                        await db.commit()
+                        logger.info(f"Progress: crawled tabs for {processed_count}/{len(slug_to_id)} cards ({tabs_processed} tabs).")
 
             # 7. Invalidate Redis Caches
             await redis_service.invalidate_pattern("catalog:*")
@@ -222,11 +249,27 @@ class SyncService:
         logo_url: Optional[str] = None,
         savesage_bank_id: Optional[int] = None,
     ) -> Bank:
-        stmt = select(Bank).where(Bank.slug == slug)
-        bank = (await db.execute(stmt)).scalar_one_or_none()
+        norm_slug = slug.strip().lower().replace("&", "")
+
+        # Check in-memory cache
+        if norm_slug in getattr(self, "_bank_cache", {}):
+            bank_id = self._bank_cache[norm_slug]
+            stmt = select(Bank).where(Bank.id == bank_id)
+            bank = (await db.execute(stmt)).scalar_one_or_none()
+            if bank:
+                if name:
+                    bank.name = name
+                if logo_url:
+                    bank.logo_url = logo_url
+                if savesage_bank_id:
+                    bank.savesage_bank_id = savesage_bank_id
+                return bank
+
+        stmt = select(Bank).where((Bank.slug == slug) | (Bank.slug == norm_slug))
+        bank = (await db.execute(stmt)).scalars().first()
         if not bank:
             bank = Bank(
-                slug=slug,
+                slug=norm_slug,
                 name=name,
                 logo_url=logo_url,
                 savesage_bank_id=savesage_bank_id,
@@ -240,6 +283,11 @@ class SyncService:
                 bank.logo_url = logo_url
             if savesage_bank_id:
                 bank.savesage_bank_id = savesage_bank_id
+
+        if not hasattr(self, "_bank_cache"):
+            self._bank_cache = {}
+        self._bank_cache[slug] = bank.id
+        self._bank_cache[norm_slug] = bank.id
         return bank
 
     async def _upsert_card(self, db: AsyncSession, data: Dict[str, Any]) -> int:

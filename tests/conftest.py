@@ -3,7 +3,6 @@ Pytest Fixtures and Test Setup.
 Uses httpx.AsyncClient with ASGI transport for fast in-memory API testing.
 """
 
-import asyncio
 import os
 import sys
 import pytest
@@ -17,13 +16,6 @@ from app.core.database import engine
 from app.models.base import Base
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest.fixture(scope="session", autouse=True)
 async def prepare_database():
     async with engine.begin() as conn:
@@ -31,7 +23,7 @@ async def prepare_database():
     yield
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

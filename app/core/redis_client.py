@@ -3,6 +3,7 @@ Async Redis Client with Upstash Support & Resilient In-Memory Fallback.
 Provides cache-aside helpers, key pattern invalidation, and distributed locks.
 """
 
+import certifi
 import json
 import time
 from typing import Any, Optional
@@ -69,16 +70,20 @@ class RedisService:
             return
 
         try:
-            self.client = aioredis.from_url(
-                settings.REDIS_URL,
-                decode_responses=True,
-                socket_timeout=5.0,
-                socket_connect_timeout=5.0,
-                retry_on_timeout=True,
-            )
+            url = settings.clean_redis_url
+            kwargs: dict[str, Any] = {
+                "decode_responses": True,
+                "socket_timeout": 5.0,
+                "socket_connect_timeout": 5.0,
+                "retry_on_timeout": True,
+            }
+            if url.startswith("rediss://"):
+                kwargs["ssl_ca_certs"] = certifi.where()
+
+            self.client = aioredis.from_url(url, **kwargs)
             await self.client.ping()
             self.is_connected = True
-            logger.info(f"Connected to Redis at {settings.REDIS_URL.split('@')[-1]}")
+            logger.info(f"Connected to Redis at {url.split('@')[-1]}")
         except Exception as e:
             logger.warning(
                 f"Could not connect to Redis ({e}). Operating in resilient In-Memory fallback mode."
