@@ -29,16 +29,30 @@ class AdvisorService:
         category_slug: str,
         spend_amount: float,
         is_international: bool = False,
-    ) -> tuple[float, float, float, str, Optional[str]]:
+    ) -> tuple[float, float, float, str, Optional[str], float]:
         """
         Evaluates a card against a category and spend amount.
-        Returns: (reward_points, reward_value_inr, effective_pct, highlight, exclusion_note)
+        Returns: (reward_points, net_reward_value_inr, effective_return_pct, highlight, exclusion_note, forex_markup_applied)
         """
         category_lower = category_slug.lower()
         exclusion_note: Optional[str] = None
         points = 0.0
-        value_inr = 0.0
+        gross_value_inr = 0.0
         point_val = 0.25  # Standard default point valuation in INR
+
+        if "infinia" in card.slug or "black" in card.slug:
+            point_val = 1.00
+        elif "atlas" in card.slug or "regalia" in card.slug:
+            point_val = 0.50
+        elif "cashback" in card.slug:
+            point_val = 1.00
+        elif card.point_value_inr:
+            point_val = card.point_value_inr
+
+        # Calculate forex markup to apply (including 18% GST)
+        forex_markup_applied = 0.0
+        if is_international and card.forex_markup_percent:
+            forex_markup_applied = round(card.forex_markup_percent * 1.18, 2)
 
         # 1. Check exclusions in tab data
         if earn_tab_content and "tabData" in earn_tab_content:
@@ -49,52 +63,72 @@ class AdvisorService:
                 excl_cat = (excl.get("category") or "").lower()
                 if category_lower in excl_name or category_lower in excl_cat:
                     exclusion_note = f"Category '{category_slug}' is an excluded spend on this card (0 rewards)."
-                    return 0.0, 0.0, 0.0, "Zero rewards on this category", exclusion_note
+                    return 0.0, 0.0, 0.0, "Zero rewards on this category", exclusion_note, forex_markup_applied
 
             # 2. Check accelerated earn rows
             earn_rows = tab_data.get("earnRows", [])
-            for row in earn_rows:
-                r_cat = (row.get("category") or "").lower()
-                r_sub = (row.get("subCategory") or "").lower()
-                r_name = (row.get("name") or "").lower()
+            
+            # If international transaction, check for international specific earn rows first
+            matched_row = None
+            if is_international:
+                for row in earn_rows:
+                    r_cat = (row.get("category") or "").lower()
+                    r_sub = (row.get("subCategory") or "").lower()
+                    r_name = (row.get("name") or "").lower()
+                    if "international" in r_cat or "international" in r_sub or "international" in r_name:
+                        matched_row = row
+                        break
 
-                if (
-                    category_lower in r_cat
-                    or category_lower in r_sub
-                    or category_lower in r_name
-                ):
-                    pts_per_unit = float(row.get("points") or 0.0)
-                    per_amt = float(row.get("per") or 100.0)
-                    if per_amt > 0:
-                        points = (spend_amount / per_amt) * pts_per_unit
-                        # High-tier cards (Infinia/Magnus) point valuation is ₹1.00 or ₹0.50
-                        if "infinia" in card.slug or "black" in card.slug:
-                            point_val = 1.00
-                        elif "atlas" in card.slug or "regalia" in card.slug:
-                            point_val = 0.50
+            # If no international row matched, match requested category
+            if not matched_row:
+                for row in earn_rows:
+                    r_cat = (row.get("category") or "").lower()
+                    r_sub = (row.get("subCategory") or "").lower()
+                    r_name = (row.get("name") or "").lower()
+                    if (
+                        category_lower in r_cat
+                        or category_lower in r_sub
+                        or category_lower in r_name
+                    ):
+                        matched_row = row
+                        break
 
-                        value_inr = points * point_val
-                        eff_pct = (value_inr / spend_amount) * 100.0
-                        if is_international and card.forex_markup_percent:
-                            eff_pct -= card.forex_markup_percent
+            if matched_row:
+                pts_per_unit = float(matched_row.get("points") or 0.0)
+                per_amt = float(matched_row.get("per") or 100.0)
+                if per_amt > 0:
+                    points = (spend_amount / per_amt) * pts_per_unit
+                    gross_value_inr = points * point_val
+                    gross_eff_pct = (gross_value_inr / spend_amount) * 100.0
 
-                        highlight = f"Accelerated: {pts_per_unit} pts per ₹{int(per_amt)} on {category_slug}"
-                        return points, round(value_inr, 2), round(eff_pct, 2), highlight, None
+                    forex_cost_inr = round(spend_amount * (forex_markup_applied / 100.0), 2)
+                    net_value_inr = round(max(0.0, gross_value_inr - forex_cost_inr), 2)
+                    eff_pct = round(max(0.0, gross_eff_pct - forex_markup_applied), 2)
+
+                    row_label = matched_row.get("name") or category_slug
+                    highlight = f"Accelerated: {pts_per_unit} pts per ₹{int(per_amt)} on {row_label}"
+                    if is_international and forex_markup_applied > 0:
+                        highlight += f" (net of {forex_markup_applied}% forex markup)"
+
+                    return points, net_value_inr, eff_pct, highlight, None, forex_markup_applied
 
         # 3. Fallback to base return percentage
         base_pct = card.return_max_percent if card.return_max_percent > 0 else card.return_min_percent
         if base_pct <= 0:
             base_pct = 1.0  # Conservative 1% fallback
 
-        eff_pct = base_pct
-        if is_international and card.forex_markup_percent:
-            eff_pct = max(0.0, eff_pct - card.forex_markup_percent)
+        gross_value_inr = (spend_amount * base_pct) / 100.0
+        points = gross_value_inr / point_val
 
-        value_inr = (spend_amount * eff_pct) / 100.0
-        points = value_inr / point_val
+        forex_cost_inr = round(spend_amount * (forex_markup_applied / 100.0), 2)
+        net_value_inr = round(max(0.0, gross_value_inr - forex_cost_inr), 2)
+        eff_pct = round(max(0.0, base_pct - forex_markup_applied), 2)
+
         highlight = f"Base reward rate: ~{base_pct:.1f}% return"
+        if is_international and forex_markup_applied > 0:
+            highlight += f" (net of {forex_markup_applied}% forex markup)"
 
-        return round(points, 1), round(value_inr, 2), round(eff_pct, 2), highlight, None
+        return round(points, 1), net_value_inr, eff_pct, highlight, None, forex_markup_applied
 
     async def get_recommendation_for_user(
         self,
@@ -102,34 +136,38 @@ class AdvisorService:
         user_id: int,
         req: CardRecommendationRequest,
     ) -> CardRecommendationResponse:
-        # 1. Fetch user's active cards
-        stmt = (
-            select(UserCard)
-            .options(
-                selectinload(UserCard.card).selectinload(CreditCard.bank),
-                selectinload(UserCard.card).selectinload(CreditCard.tabs),
-            )
-            .where(UserCard.user_id == user_id, UserCard.is_active == True)
-        )
-        user_cards = (await db.execute(stmt)).scalars().all()
-
         evaluated_items: List[RecommendedCardItem] = []
         insights: List[str] = []
 
-        if not user_cards:
-            insights.append(
-                "You haven't added any cards to your wallet yet. Displaying market benchmark recommendations."
+        # Case A: Explicit card IDs passed in request (e.g. Guest mode or explicit card selection)
+        if req.card_ids:
+            stmt = (
+                select(CreditCard)
+                .options(
+                    selectinload(CreditCard.bank),
+                    selectinload(CreditCard.tabs),
+                )
+                .where(CreditCard.id.in_(req.card_ids))
             )
-        else:
-            for uc in user_cards:
-                c = uc.card
-                # Find earn-categories tab
+            cards = (await db.execute(stmt)).scalars().all()
+
+            # If user is authenticated, also check if user has custom nicknames for these cards
+            user_holdings_map: Dict[int, UserCard] = {}
+            if user_id > 0:
+                uc_stmt = (
+                    select(UserCard)
+                    .where(UserCard.user_id == user_id, UserCard.card_id.in_(req.card_ids))
+                )
+                user_cards = (await db.execute(uc_stmt)).scalars().all()
+                for uc in user_cards:
+                    user_holdings_map[uc.card_id] = uc
+
+            for c in cards:
                 earn_tab = next(
                     (t.raw_content for t in c.tabs if t.tab_name == "earn-categories"),
                     None,
                 )
-
-                pts, val, eff_pct, highlight, excl = self._evaluate_card_return(
+                pts, val, eff_pct, highlight, excl, forex_applied = self._evaluate_card_return(
                     card=c,
                     earn_tab_content=earn_tab,
                     category_slug=req.category_slug,
@@ -137,28 +175,90 @@ class AdvisorService:
                     is_international=req.is_international,
                 )
 
+                uc = user_holdings_map.get(c.id)
                 evaluated_items.append(
                     RecommendedCardItem(
-                        user_card_id=uc.id,
+                        user_card_id=uc.id if uc else None,
                         card_id=c.id,
                         card_title=c.title,
                         card_slug=c.slug,
                         bank_name=c.bank.name if c.bank else "Bank",
                         bank_logo_url=c.bank.logo_url if c.bank else None,
-                        card_image_url=c.card_image_url,
-                        nickname=uc.nickname or c.display_name,
-                        last_4_digits=uc.last_4_digits,
-                        rank=1,  # updated after sort
+                        card_image_url=c.card_image_url or c.web_logo_url,
+                        nickname=uc.nickname if uc and uc.nickname else c.display_name,
+                        last_4_digits=uc.last_4_digits if uc else None,
+                        rank=1,
                         estimated_reward_points=pts,
                         estimated_reward_value_inr=val,
                         effective_return_percent=eff_pct,
+                        forex_markup_applied=forex_applied,
                         reward_type="cashback" if "cashback" in c.slug else "points",
                         benefit_highlight=highlight,
                         notes_or_exclusions=excl,
                     )
                 )
 
-        # Sort user cards by estimated monetary return descending
+        # Case B: Authenticated user querying their stored wallet cards
+        elif user_id > 0:
+            stmt = (
+                select(UserCard)
+                .options(
+                    selectinload(UserCard.card).selectinload(CreditCard.bank),
+                    selectinload(UserCard.card).selectinload(CreditCard.tabs),
+                )
+                .where(UserCard.user_id == user_id, UserCard.is_active == True)
+            )
+            user_cards = (await db.execute(stmt)).scalars().all()
+
+            if not user_cards:
+                insights.append(
+                    "You haven't added any cards to your wallet yet. Displaying market benchmark recommendations."
+                )
+            else:
+                for uc in user_cards:
+                    c = uc.card
+                    earn_tab = next(
+                        (t.raw_content for t in c.tabs if t.tab_name == "earn-categories"),
+                        None,
+                    )
+
+                    pts, val, eff_pct, highlight, excl, forex_applied = self._evaluate_card_return(
+                        card=c,
+                        earn_tab_content=earn_tab,
+                        category_slug=req.category_slug,
+                        spend_amount=req.spend_amount,
+                        is_international=req.is_international,
+                    )
+
+                    evaluated_items.append(
+                        RecommendedCardItem(
+                            user_card_id=uc.id,
+                            card_id=c.id,
+                            card_title=c.title,
+                            card_slug=c.slug,
+                            bank_name=c.bank.name if c.bank else "Bank",
+                            bank_logo_url=c.bank.logo_url if c.bank else None,
+                            card_image_url=c.card_image_url or c.web_logo_url,
+                            nickname=uc.nickname or c.display_name,
+                            last_4_digits=uc.last_4_digits,
+                            rank=1,
+                            estimated_reward_points=pts,
+                            estimated_reward_value_inr=val,
+                            effective_return_percent=eff_pct,
+                            forex_markup_applied=forex_applied,
+                            reward_type="cashback" if "cashback" in c.slug else "points",
+                            benefit_highlight=highlight,
+                            notes_or_exclusions=excl,
+                        )
+                    )
+
+        # Case C: Unauthenticated guest without explicit card_ids
+        else:
+            insights.append(
+                "Guest recommendation mode. Add cards to your wallet or supply card_ids to rank your cards."
+            )
+
+        # Sort evaluated cards by estimated monetary return descending
         evaluated_items.sort(key=lambda x: x.estimated_reward_value_inr, reverse=True)
         for i, item in enumerate(evaluated_items):
             item.rank = i + 1
@@ -170,9 +270,9 @@ class AdvisorService:
             insights.append(
                 f"Use '{top_rec.nickname}' for a projected return of ₹{top_rec.estimated_reward_value_inr:.2f} ({top_rec.effective_return_percent}% effective return)."
             )
-            if req.is_international:
+            if req.is_international and top_rec.forex_markup_applied > 0:
                 insights.append(
-                    "Calculated after subtracting foreign currency exchange markup fees."
+                    f"Deducted {top_rec.forex_markup_applied}% forex markup (inclusive of 18% GST) for foreign currency spend."
                 )
 
         # 2. Find Overall Market Benchmark Card
@@ -192,7 +292,7 @@ class AdvisorService:
                 (t.raw_content for t in best_m.tabs if t.tab_name == "earn-categories"),
                 None,
             )
-            m_pts, m_val, m_eff_pct, m_hl, _ = self._evaluate_card_return(
+            m_pts, m_val, m_eff_pct, m_hl, _, m_forex = self._evaluate_card_return(
                 best_m, m_tab, req.category_slug, req.spend_amount, req.is_international
             )
             market_benchmark = RecommendedCardItem(
@@ -201,11 +301,12 @@ class AdvisorService:
                 card_slug=best_m.slug,
                 bank_name=best_m.bank.name if best_m.bank else "Bank",
                 bank_logo_url=best_m.bank.logo_url if best_m.bank else None,
-                card_image_url=best_m.card_image_url,
+                card_image_url=best_m.card_image_url or best_m.web_logo_url,
                 rank=1,
                 estimated_reward_points=m_pts,
                 estimated_reward_value_inr=m_val,
                 effective_return_percent=m_eff_pct,
+                forex_markup_applied=m_forex,
                 benefit_highlight=m_hl,
             )
 

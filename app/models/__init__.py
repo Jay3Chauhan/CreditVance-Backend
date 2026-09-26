@@ -10,6 +10,10 @@ from app.models.card_tab import CardTab
 from app.models.user import User
 from app.models.user_card import UserCard
 from app.models.sync_audit import SyncAuditLog
+from app.models.device_token import DeviceToken
+from app.models.banner import Banner
+from app.models.promotion import Promotion
+from app.models.saved_card import SavedCard
 
 __all__ = [
     "Base",
@@ -21,4 +25,8 @@ __all__ = [
     "User",
     "UserCard",
     "SyncAuditLog",
+    "DeviceToken",
+    "Banner",
+    "Promotion",
+    "SavedCard",
 ]

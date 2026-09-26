@@ -13,7 +13,9 @@ from app.schemas.card import (
     CardTabResponse,
 )
 from app.schemas.common import ApiResponse
+from app.schemas.content import CompareCardsRequest, CompareResponse
 from app.services.card_service import card_service
+from app.services.discovery_service import discovery_service
 
 router = APIRouter(prefix="/cards", tags=["Credit Cards Catalog"])
 
@@ -24,18 +26,25 @@ async def list_cards(
     bank_slug: Optional[str] = Query(None, description="Filter by bank slug (e.g. hdfc, icici, axis)"),
     network: Optional[str] = Query(None, description="Filter by network (VISA, MASTERCARD, RUPAY, AMEX)"),
     fee_type: Optional[str] = Query(None, description="Filter: 'free', 'lt1k', '1k5k', 'gt5k'"),
+    has_lounge: Optional[bool] = Query(None, description="Filter cards with lounge access (true/false)"),
+    lounge: Optional[bool] = Query(None, description="Alias for has_lounge"),
+    lounge_type: Optional[str] = Query(None, description="Filter by lounge type (e.g. INTERNATIONAL_LOUNGE, DOMESTIC_LOUNGE, RAILWAY_LOUNGE)"),
     is_popular: Optional[bool] = Query(None, description="Filter popular cards"),
-    sort_by: Optional[str] = Query("popular", description="Sort by 'popular', 'return', 'fee_asc', 'fee_desc', 'name'"),
+    sort_by: Optional[str] = Query("popular", description="Sort by 'popular', 'return', 'return_desc', 'fee_asc', 'annual_fee_asc', 'fee_desc', 'annual_fee_desc', 'name'"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Page size"),
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieves paginated cards matching multifaceted filter criteria."""
+    effective_has_lounge = has_lounge if has_lounge is not None else lounge
     query_params = CardFilterQuery(
         search=search,
         bank_slug=bank_slug,
         network=network,
         fee_type=fee_type,
+        has_lounge=effective_has_lounge,
+        lounge=effective_has_lounge,
+        lounge_type=lounge_type,
         is_popular=is_popular,
         sort_by=sort_by,
         page=page,
@@ -46,6 +55,16 @@ async def list_cards(
         data=items,
         meta=meta,
     )
+
+
+@router.post("/compare", response_model=ApiResponse[CompareResponse])
+async def compare_cards(req: CompareCardsRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Side-by-side comparison for 2 to 4 catalog cards.
+    `winner_slug` is set only when one card is strictly better on that row.
+    """
+    result = await discovery_service.compare(db, req.slugs)
+    return ApiResponse(data=result)
 
 
 @router.get("/{slug}", response_model=ApiResponse[CardDetailResponse])

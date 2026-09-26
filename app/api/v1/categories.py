@@ -15,8 +15,8 @@ router = APIRouter(prefix="/categories", tags=["Categories"])
 
 @router.get("", response_model=ApiResponse[List[CategoryResponse]])
 async def list_categories(db: AsyncSession = Depends(get_db)):
-    """Retrieves all 16 supported spend categories (Dining, Flights, Grocery, etc.)."""
+    """Retrieves all 16 supported spend categories with icon keys and display order."""
     cats = await card_service.get_all_categories(db)
     return ApiResponse(
-        data=[CategoryResponse.model_validate(c) for c in cats]
+        data=cats
     )

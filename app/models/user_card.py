@@ -31,6 +31,9 @@ class UserCard(Base, TimestampMixin):
     nickname: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     last_4_digits: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
     billing_cycle_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    statement_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    due_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships

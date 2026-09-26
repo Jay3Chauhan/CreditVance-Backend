@@ -85,6 +85,10 @@ class ExternalServiceError(AppException):
         )
 
 
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     logger.warning(
         f"Handled application exception [{exc.code}] at {request.url.path}: {exc.message}"
@@ -94,6 +98,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
         content={
             "success": False,
             "message": exc.message,
+            "detail": exc.message,
             "data": None,
             "error": {
                 "code": exc.code,
@@ -103,13 +108,66 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     )
 
 
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Flattens FastAPI validation errors into a single, clean 'detail' string."""
+    error_messages = []
+    for err in exc.errors():
+        loc = ".".join(str(l) for l in err.get("loc", []) if l != "body")
+        msg = err.get("msg", "Invalid value")
+        if loc:
+            error_messages.append(f"{loc}: {msg}")
+        else:
+            error_messages.append(msg)
+
+    detail_str = "; ".join(error_messages) if error_messages else "Request validation failed"
+    logger.warning(f"Validation error at {request.url.path}: {detail_str}")
+
+    return JSONResponse(
+        status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
+        content={
+            "success": False,
+            "message": detail_str,
+            "detail": detail_str,
+            "data": None,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "details": exc.errors(),
+            },
+        },
+    )
+
+
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
+    """Wraps standard Starlette HTTPExceptions with standard envelope and 'detail' string."""
+    detail_msg = str(exc.detail) if isinstance(exc.detail, str) else "HTTP error"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": detail_msg,
+            "detail": detail_msg,
+            "data": None,
+            "error": {
+                "code": f"HTTP_{exc.status_code}",
+                "details": exc.detail,
+            },
+        },
+    )
+
+
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception(f"Unhandled system exception at {request.url.path}: {str(exc)}")
+    error_msg = "An unexpected internal server error occurred."
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
-            "message": "An unexpected internal server error occurred.",
+            "message": error_msg,
+            "detail": error_msg,
             "data": None,
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
@@ -117,3 +175,4 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
             },
         },
     )
+

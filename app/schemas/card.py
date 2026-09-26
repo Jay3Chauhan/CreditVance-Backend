@@ -33,16 +33,25 @@ class CardSummaryResponse(BaseModel):
     is_currently_issuing: bool
 
 
+class CategoryEarnRateItem(BaseModel):
+    category_slug: str = Field(..., description="Spend category slug (e.g. Dining, Grocery, Online Shopping)")
+    rate_percent: float = Field(..., description="Estimated return percentage on this category")
+    cap_monthly: Optional[float] = Field(None, description="Optional monthly reward cap or INR limit")
+
+
 class CardDetailResponse(CardSummaryResponse):
     bank: Optional[BankResponse] = None
     apr_percent: Optional[float] = None
     add_on_card_fee: Optional[float] = None
+    fee_waiver_spend: Optional[float] = Field(None, description="Annual spend at which renewal fee is waived")
+    point_value_inr: Optional[float] = Field(None, description="Monetary valuation of 1 reward point in INR")
     is_fd_card: bool
     is_business_card: bool
     apply_link: Optional[str] = None
     overview_text: Optional[str] = None
     best_suited: Optional[str] = None
     available_tabs: List[str] = Field(default_factory=list)
+    per_category_earn_rates: List[CategoryEarnRateItem] = Field(default_factory=list)
 
 
 class CardTabResponse(BaseModel):
@@ -57,8 +66,10 @@ class CardFilterQuery(BaseModel):
     bank_slug: Optional[str] = Field(None, description="Filter by bank slug (e.g. hdfc, icici, axis)")
     network: Optional[str] = Field(None, description="Filter by network (VISA, MASTERCARD, RUPAY, AMEX)")
     fee_type: Optional[str] = Field(None, description="Filter: 'free', 'lt1k', '1k5k', 'gt5k'")
-    lounge: Optional[bool] = Field(None, description="Filter cards with lounge access")
+    lounge: Optional[bool] = Field(None, description="Filter cards with lounge access (alias for has_lounge)")
+    has_lounge: Optional[bool] = Field(None, description="Filter cards with lounge access (true/false)")
+    lounge_type: Optional[str] = Field(None, description="Filter by lounge type (e.g. INTERNATIONAL_LOUNGE, DOMESTIC_LOUNGE, RAILWAY_LOUNGE)")
     is_popular: Optional[bool] = Field(None, description="Filter only popular cards")
-    sort_by: Optional[str] = Field("popular", description="Sort by: 'popular', 'return', 'fee_asc', 'fee_desc', 'name'")
+    sort_by: Optional[str] = Field("popular", description="Sort by: 'popular', 'return', 'return_desc', 'fee_asc', 'annual_fee_asc', 'fee_desc', 'annual_fee_desc', 'name'")
     page: int = Field(1, ge=1, description="Page number (1-based)")
     limit: int = Field(20, ge=1, le=100, description="Items per page")

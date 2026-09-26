@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.schemas.calculator import (
+    AnnualCalculatorRequest,
+    AnnualCalculatorResponse,
     RewardCalculateRequest,
     RewardCalculateResponse,
 )
@@ -29,3 +31,20 @@ async def calculate_reward(
         message="Reward calculation completed.",
         data=result,
     )
+
+
+@router.post("/annual", response_model=ApiResponse[AnnualCalculatorResponse])
+async def calculate_annual_reward(
+    req: AnnualCalculatorRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Computes comprehensive annual reward breakdown across multiple categories,
+    evaluating fee waiver status and net portfolio return.
+    """
+    result = await calculator_service.calculate_annual_reward(db, req)
+    return ApiResponse(
+        message="Annual reward calculation completed successfully.",
+        data=result,
+    )
+

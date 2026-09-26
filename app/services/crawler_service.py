@@ -62,6 +62,9 @@ class CrawlerService:
 
                     if response.status_code == 200:
                         return response.json()
+                    elif response.status_code == 404:
+                        logger.debug(f"HTTP 404 Not Found at {url} (expected for unindexed cards/tabs)")
+                        return None
                     elif response.status_code == 429:
                         # Rate limited, backoff heavily
                         backoff = (2 ** attempt) + random.uniform(1.0, 3.0)

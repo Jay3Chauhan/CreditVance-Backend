@@ -33,3 +33,37 @@ class RewardCalculateResponse(BaseModel):
     suggested_card: CardRewardSummary
     annual_savings: float
     suggested_card_is_same: bool
+
+
+class AnnualCalculatorRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    card_id: int = Field(..., alias="cardId", description="Target card ID")
+    monthly_spend: dict[str, float] = Field(
+        ...,
+        alias="monthlySpend",
+        description="Map of category slug (e.g. 'Dining', 'Grocery', 'Flights') to monthly spend amount in INR",
+    )
+
+
+class CategorySpendBreakdown(BaseModel):
+    category_slug: str
+    monthly_spend: float
+    annual_spend: float
+    rate_percent: float
+    annual_reward_inr: float
+
+
+class AnnualCalculatorResponse(BaseModel):
+    card_id: int
+    card_name: str
+    bank_name: str
+    card_image_url: Optional[str] = None
+    annual_spend: float
+    total_annual_reward_inr: float
+    renewal_fee: float
+    fee_waiver_spend: Optional[float] = None
+    fee_waived: bool
+    effective_renewal_fee: float
+    net_annual_value_inr: float
+    category_breakdown: list[CategorySpendBreakdown]

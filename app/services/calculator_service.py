@@ -11,11 +11,15 @@ from app.core.exceptions import NotFoundError
 from app.models.card import CreditCard
 from app.models.card_tab import CardTab
 from app.schemas.calculator import (
+    AnnualCalculatorRequest,
+    AnnualCalculatorResponse,
     CardRewardSummary,
+    CategorySpendBreakdown,
     RewardCalculateRequest,
     RewardCalculateResponse,
 )
 from app.services.advisor_service import advisor_service
+from app.services.card_service import card_service
 
 
 class CalculatorService:
@@ -40,7 +44,7 @@ class CalculatorService:
             None,
         )
 
-        pts, worth, ret_pct, _, _ = advisor_service._evaluate_card_return(
+        pts, worth, ret_pct, _, _, _ = advisor_service._evaluate_card_return(
             card=user_card_model,
             earn_tab_content=earn_tab,
             category_slug=req.category_slug,
@@ -73,7 +77,7 @@ class CalculatorService:
                 (t.raw_content for t in benchmark_card.tabs if t.tab_name == "earn-categories"),
                 None,
             )
-            b_pts, b_worth, b_pct, _, _ = advisor_service._evaluate_card_return(
+            b_pts, b_worth, b_pct, _, _, _ = advisor_service._evaluate_card_return(
                 card=benchmark_card,
                 earn_tab_content=b_tab,
                 category_slug=req.category_slug,
@@ -101,6 +105,77 @@ class CalculatorService:
             suggested_card=suggested_summary,
             annual_savings=round(annual_savings, 2),
             suggested_card_is_same=suggested_is_same,
+        )
+
+    async def calculate_annual_reward(
+        self, db: AsyncSession, req: AnnualCalculatorRequest
+    ) -> AnnualCalculatorResponse:
+        """
+        Calculates multi-category annual reward value, fee waiver qualification,
+        and net portfolio value based on custom monthly spending breakdown.
+        """
+        stmt = (
+            select(CreditCard)
+            .options(selectinload(CreditCard.bank), selectinload(CreditCard.tabs))
+            .where(CreditCard.id == req.card_id)
+        )
+        card = (await db.execute(stmt)).scalar_one_or_none()
+        if not card:
+            raise NotFoundError(f"Credit card with ID {req.card_id} not found.")
+
+        earn_tab = next(
+            (t.raw_content for t in card.tabs if t.tab_name == "earn-categories"),
+            None,
+        )
+
+        category_breakdowns: list[CategorySpendBreakdown] = []
+        total_monthly_spend = 0.0
+        total_annual_reward = 0.0
+
+        for category_slug, monthly_amount in req.monthly_spend.items():
+            if monthly_amount <= 0:
+                continue
+            total_monthly_spend += monthly_amount
+            annual_spend = monthly_amount * 12.0
+
+            pts, worth, ret_pct, _, _, _ = advisor_service._evaluate_card_return(
+                card=card,
+                earn_tab_content=earn_tab,
+                category_slug=category_slug,
+                spend_amount=monthly_amount,
+            )
+            annual_reward = round(worth * 12.0, 2)
+            total_annual_reward += annual_reward
+
+            category_breakdowns.append(
+                CategorySpendBreakdown(
+                    category_slug=category_slug,
+                    monthly_spend=round(monthly_amount, 2),
+                    annual_spend=round(annual_spend, 2),
+                    rate_percent=ret_pct,
+                    annual_reward_inr=annual_reward,
+                )
+            )
+
+        total_annual_spend = total_monthly_spend * 12.0
+        fee_waiver = card_service._resolve_fee_waiver_spend(card, card.tabs)
+        fee_waived = bool(fee_waiver is not None and total_annual_spend >= fee_waiver)
+        effective_fee = 0.0 if fee_waived else card.renewal_fee
+        net_annual_value = round(total_annual_reward - effective_fee, 2)
+
+        return AnnualCalculatorResponse(
+            card_id=card.id,
+            card_name=card.display_name,
+            bank_name=card.bank.name if card.bank else "Bank",
+            card_image_url=card.card_image_url or card.web_logo_url,
+            annual_spend=round(total_annual_spend, 2),
+            total_annual_reward_inr=round(total_annual_reward, 2),
+            renewal_fee=card.renewal_fee,
+            fee_waiver_spend=fee_waiver,
+            fee_waived=fee_waived,
+            effective_renewal_fee=effective_fee,
+            net_annual_value_inr=net_annual_value,
+            category_breakdown=category_breakdowns,
         )
 
 

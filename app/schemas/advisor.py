@@ -13,6 +13,7 @@ class CardRecommendationRequest(BaseModel):
     spend_amount: float = Field(..., gt=0, description="Spend amount in INR (e.g. 2500.00)")
     merchant_name: Optional[str] = Field(None, description="Optional merchant name (e.g. 'Swiggy', 'Zomato', 'Amazon', 'MakeMyTrip')")
     is_international: bool = Field(False, description="Set True if transaction is in foreign currency")
+    card_ids: Optional[List[int]] = Field(None, description="Optional explicit card IDs to evaluate (for guest ranking or explicit card comparison)")
 
 
 class RecommendedCardItem(BaseModel):
@@ -29,6 +30,7 @@ class RecommendedCardItem(BaseModel):
     estimated_reward_points: float
     estimated_reward_value_inr: float
     effective_return_percent: float
+    forex_markup_applied: float = 0.0
     reward_type: str = "points"  # "cashback" or "points"
     benefit_highlight: str
     notes_or_exclusions: Optional[str] = None

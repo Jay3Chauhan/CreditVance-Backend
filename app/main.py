@@ -12,13 +12,18 @@ from loguru import logger
 from app.api.v1.router import api_v1_router
 from app.core.config import settings
 from app.core.database import engine
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.exceptions import (
     AppException,
     app_exception_handler,
     generic_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
 )
 from app.core.logging import setup_logging
 from app.core.redis_client import redis_service
+import app.models  # noqa: F401  — register every table on Base.metadata
 from app.models.base import Base
 from app.tasks.scheduler import shutdown_scheduler, start_scheduler
 
@@ -90,7 +95,10 @@ async def add_process_time_header(request: Request, call_next):
 
 # Register Centralized Exception Handlers
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
+
 
 # Mount Master v1 Router
 app.include_router(api_v1_router)

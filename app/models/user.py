@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.saved_card import SavedCard
     from app.models.user_card import UserCard
 
 
@@ -24,6 +25,9 @@ class User(Base, TimestampMixin):
     # User's owned cards
     cards: Mapped[List["UserCard"]] = relationship(
         "UserCard", back_populates="user", cascade="all, delete-orphan"
+    )
+    saved_cards: Mapped[List["SavedCard"]] = relationship(
+        "SavedCard", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

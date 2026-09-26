@@ -40,6 +40,7 @@ class CreditCard(Base, TimestampMixin):
     # Fees & Financials
     joining_fee: Mapped[float] = mapped_column(Float, default=0.0, index=True)
     renewal_fee: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    fee_waiver_spend: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     forex_markup_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     apr_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     add_on_card_fee: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -48,6 +49,7 @@ class CreditCard(Base, TimestampMixin):
     return_percentage_raw: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     return_min_percent: Mapped[float] = mapped_column(Float, default=0.0, index=True)
     return_max_percent: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    point_value_inr: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Classification & Flags
     network_type: Mapped[Optional[str]] = mapped_column(String(50), index=True, nullable=True)
