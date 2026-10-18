@@ -3,9 +3,12 @@ Application Configuration Module.
 Loads environment variables using Pydantic Settings with type validation.
 """
 
+from pathlib import Path
 from typing import List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -55,6 +58,21 @@ class Settings(BaseSettings):
     # Cron Job Scheduling
     CRON_SYNC_ENABLED: bool = True
     CRON_SYNC_SCHEDULE: str = "0 2 * * 0"  # Every Sunday 02:00 AM UTC
+
+    # Firebase Cloud Messaging
+    FIREBASE_ENABLED: bool = True
+    FIREBASE_CREDENTIALS_PATH: str = "secrets/firebase-adminsdk.json"
+    CRON_PUSH_ENABLED: bool = True
+    # 03:30 UTC is 09:00 in India, so "due today" matches the user's calendar date.
+    CRON_PUSH_SCHEDULE: str = "30 3 * * *"
+
+    @property
+    def resolved_firebase_credentials_path(self) -> Path:
+        """Absolute path to the service-account JSON. Relative paths start at the repo root."""
+        path = Path(self.FIREBASE_CREDENTIALS_PATH)
+        if not path.is_absolute():
+            path = _PROJECT_ROOT / path
+        return path
 
     @property
     def is_production(self) -> bool:

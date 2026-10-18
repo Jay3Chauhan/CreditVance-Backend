@@ -11,6 +11,7 @@ class AddUserCardRequest(BaseModel):
     billing_cycle_day: Optional[int] = Field(None, ge=1, le=31, description="Day of month when bill generates (e.g. 15)")
     statement_day: Optional[int] = Field(None, ge=1, le=31, description="Day of month when statement generates (e.g. 15)")
     due_day: Optional[int] = Field(None, ge=1, le=31, description="Day of month when payment is due (e.g. 5)")
+    anniversary_month: Optional[int] = Field(None, ge=1, le=12, description="Card anniversary month (1-12) for milestone tracking")
     sort_order: Optional[int] = Field(0, description="Display order in wallet")
 
 
@@ -20,6 +21,7 @@ class UpdateUserCardRequest(BaseModel):
     billing_cycle_day: Optional[int] = Field(None, ge=1, le=31)
     statement_day: Optional[int] = Field(None, ge=1, le=31)
     due_day: Optional[int] = Field(None, ge=1, le=31)
+    anniversary_month: Optional[int] = Field(None, ge=1, le=12)
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -39,6 +41,7 @@ class UserCardResponse(BaseModel):
     billing_cycle_day: Optional[int] = None
     statement_day: Optional[int] = None
     due_day: Optional[int] = None
+    anniversary_month: Optional[int] = 1
     sort_order: int = 0
     is_active: bool
     created_at: datetime

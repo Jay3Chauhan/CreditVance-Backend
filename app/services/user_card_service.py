@@ -50,6 +50,7 @@ class UserCardService:
             billing_cycle_day=billing_cycle_day,
             statement_day=statement_day,
             due_day=req.due_day,
+            anniversary_month=req.anniversary_month or 1,
             sort_order=req.sort_order if req.sort_order is not None else 0,
             is_active=True,
         )
@@ -96,6 +97,8 @@ class UserCardService:
                 uc.billing_cycle_day = req.statement_day
         if req.due_day is not None:
             uc.due_day = req.due_day
+        if req.anniversary_month is not None:
+            uc.anniversary_month = req.anniversary_month
         if req.sort_order is not None:
             uc.sort_order = req.sort_order
         if req.is_active is not None:
@@ -181,6 +184,7 @@ class UserCardService:
             billing_cycle_day=uc.billing_cycle_day or uc.statement_day,
             statement_day=uc.statement_day or uc.billing_cycle_day,
             due_day=uc.due_day,
+            anniversary_month=uc.anniversary_month or 1,
             sort_order=uc.sort_order if uc.sort_order is not None else 0,
             is_active=uc.is_active,
             created_at=uc.created_at,

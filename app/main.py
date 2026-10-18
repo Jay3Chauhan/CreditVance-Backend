@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             logger.info("Database tables verified/created.")
 
+    from app.services.firebase_push_service import firebase_push_service
+
+    firebase_push_service.initialize()
+
     # Start background cron scheduler
     start_scheduler()
 

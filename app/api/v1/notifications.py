@@ -1,29 +1,54 @@
 """
-Notifications & Due-Date Reminders Router.
-Allows mobile device registration (FCM/APNs) and serves statement/due date reminder schedules.
-PCI-DSS Safe: Only processes day of month, never card numbers.
+Notifications, device registration, and Firebase push.
+PCI-DSS safe: reminders use the day of the month only. Card numbers are never read.
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status
+
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
 from app.api.deps import get_current_user, get_db, get_optional_user
+from app.core.exceptions import NotFoundError
 from app.models.card import CreditCard
 from app.models.device_token import DeviceToken
 from app.models.user import User
 from app.models.user_card import UserCard
-from app.services.billing import days_until_day_of_month
 from app.schemas.common import ApiResponse
 from app.schemas.device_token import (
-    CardReminderItem,
     DeviceTokenRegisterRequest,
     DeviceTokenResponse,
     UpcomingRemindersResponse,
 )
+from app.schemas.notification import (
+    NotificationHistoryItem,
+    NotificationPreferencesResponse,
+    NotificationPreferencesUpdate,
+    PushDispatchResponse,
+    PushStatusResponse,
+)
+from app.services.firebase_push_service import firebase_push_service
+from app.services.notification_service import notification_service
+from app.services.reminder_service import build_reminders
 
 router = APIRouter(prefix="/notifications", tags=["Notifications & Reminders"])
+
+
+@router.get("/status", response_model=ApiResponse[PushStatusResponse])
+async def push_status():
+    """Whether this server can send Firebase pushes. Does not expose credentials."""
+    raw = firebase_push_service.status()
+    return ApiResponse(
+        data=PushStatusResponse(
+            enabled=bool(raw["enabled"]),
+            configured=bool(raw["configured"]),
+            initialized=bool(raw["initialized"]),
+            project_id=raw["project_id"] if isinstance(raw["project_id"], str) else None,
+            android_channel_id=str(raw["android_channel_id"]),
+        )
+    )
 
 
 @router.post(
@@ -37,33 +62,93 @@ async def register_device_token(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Registers or updates an FCM/APNs push device token.
-    Works for both authenticated users and anonymous guest devices.
+    Registers or updates an FCM registration token.
+    Call this after login and whenever Firebase refreshes the token.
+    A token already stored for another account is moved to the current account.
     """
     stmt = select(DeviceToken).where(DeviceToken.token == req.device_token.strip())
     existing = (await db.execute(stmt)).scalar_one_or_none()
-
     user_id = user.id if user else None
 
     if existing:
         existing.user_id = user_id
-        existing.platform = req.platform.lower()
+        existing.platform = req.platform
         target = existing
     else:
         target = DeviceToken(
             user_id=user_id,
             token=req.device_token.strip(),
-            platform=req.platform.lower(),
+            platform=req.platform,
         )
         db.add(target)
 
     await db.commit()
     await db.refresh(target)
-
     return ApiResponse(
         message="Device token registered successfully.",
         data=DeviceTokenResponse.model_validate(target),
     )
+
+
+@router.delete("/device-token", response_model=ApiResponse[None])
+async def remove_device_token(
+    device_token: str = Query(..., min_length=10, max_length=500),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Call this on logout so a signed-out phone stops receiving this account's reminders."""
+    stmt = select(DeviceToken).where(
+        DeviceToken.token == device_token.strip(),
+        DeviceToken.user_id == user.id,
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if not existing:
+        raise NotFoundError("Device token not found for this account.")
+    await db.delete(existing)
+    await db.commit()
+    return ApiResponse(message="Device token removed.", data=None)
+
+
+@router.get("/preferences", response_model=ApiResponse[NotificationPreferencesResponse])
+async def get_notification_preferences(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reminder offsets and the product-news opt-in. Defaults apply until the user saves."""
+    prefs = await notification_service.get_preferences(db, user.id)
+    return ApiResponse(data=prefs)
+
+
+@router.patch("/preferences", response_model=ApiResponse[NotificationPreferencesResponse])
+async def update_notification_preferences(
+    req: NotificationPreferencesUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update any subset of push preferences. 0 in a day list means 'on that day'."""
+    prefs = await notification_service.update_preferences(db, user.id, req)
+    return ApiResponse(message="Notification preferences saved.", data=prefs)
+
+
+@router.post("/test", response_model=ApiResponse[PushDispatchResponse])
+async def send_test_notification(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sends one test push to every device registered on this account."""
+    result = await notification_service.send_test_push(db, user.id)
+    return ApiResponse(message="Test notification processed.", data=result)
+
+
+@router.get("/history", response_model=ApiResponse[List[NotificationHistoryItem]])
+async def notification_history(
+    limit: int = Query(20, ge=1, le=50),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Recent pushes for this account, newest first. Useful as an in-app inbox."""
+    items = await notification_service.list_history(db, user.id, limit)
+    return ApiResponse(data=items)
 
 
 @router.get("/reminders", response_model=ApiResponse[UpcomingRemindersResponse])
@@ -72,75 +157,14 @@ async def get_upcoming_reminders(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Computes upcoming billing cycle and payment due-date reminders for user's active cards.
-    Only days of the month are processed. Zero card data exposure.
+    Upcoming statement and due dates for the signed-in wallet.
+    This list is for the app UI. Push delivery uses the same dates, filtered by preferences.
     """
     stmt = (
         select(UserCard)
         .options(selectinload(UserCard.card).selectinload(CreditCard.bank))
-        .where(UserCard.user_id == user.id, UserCard.is_active == True)
+        .where(UserCard.user_id == user.id, UserCard.is_active.is_(True))
     )
-    user_cards = (await db.execute(stmt)).scalars().all()
-
-    reminders: List[CardReminderItem] = []
-
-    for uc in user_cards:
-        c = uc.card
-        title = c.display_name if c else (uc.nickname or "Card")
-        bank = c.bank.name if c and c.bank else "Bank"
-
-        # Check due day
-        if uc.due_day:
-            diff_due = days_until_day_of_month(uc.due_day)
-            if diff_due == 0:
-                msg = f"Payment for {uc.nickname or title} is due today!"
-            elif diff_due <= 5:
-                msg = f"Payment for {uc.nickname or title} is due in {diff_due} days (Day {uc.due_day})."
-            else:
-                msg = f"Upcoming bill due on Day {uc.due_day} of each month."
-
-            reminders.append(
-                CardReminderItem(
-                    user_card_id=uc.id,
-                    nickname=uc.nickname or title,
-                    card_title=c.title if c else title,
-                    bank_name=bank,
-                    statement_day=uc.statement_day or uc.billing_cycle_day,
-                    due_day=uc.due_day,
-                    days_until_due=diff_due,
-                    reminder_type="due_date",
-                    message=msg,
-                )
-            )
-
-        # Check statement day
-        stmt_day = uc.statement_day or uc.billing_cycle_day
-        if stmt_day:
-            diff_stmt = days_until_day_of_month(stmt_day)
-            if diff_stmt == 0:
-                msg = f"Statement for {uc.nickname or title} generates today!"
-            elif diff_stmt <= 3:
-                msg = f"Statement for {uc.nickname or title} generates in {diff_stmt} days."
-            else:
-                msg = f"Statement generates on Day {stmt_day} of each month."
-
-            reminders.append(
-                CardReminderItem(
-                    user_card_id=uc.id,
-                    nickname=uc.nickname or title,
-                    card_title=c.title if c else title,
-                    bank_name=bank,
-                    statement_day=stmt_day,
-                    due_day=uc.due_day,
-                    days_until_statement=diff_stmt,
-                    reminder_type="statement_date",
-                    message=msg,
-                )
-            )
-
-    # Sort reminders with closest due/statement days first
-    reminders.sort(key=lambda r: min(r.days_until_due or 99, r.days_until_statement or 99))
-
-    return ApiResponse(
-        data=UpcomingRemindersResponse(reminders=reminders)
-    )
+    user_cards = list((await db.execute(stmt)).scalars().all())
+    reminders = build_reminders(user_cards)
+    return ApiResponse(data=UpcomingRemindersResponse(reminders=reminders))

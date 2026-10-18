@@ -96,6 +96,17 @@ FAQ_ITEMS: list[FaqItem] = [
             "Confirm the live offer on the bank site before you apply."
         ),
     ),
+    FaqItem(
+        id="push-reminders",
+        topic="reminders",
+        question="When will I get a payment notification?",
+        answer=(
+            "After you allow notifications and the app registers its Firebase token, "
+            "CreditVance sends a push on the due date, the day before, and three days before, "
+            "unless you change those days in notification preferences. "
+            "The phone must be signed in so the token is tied to your account."
+        ),
+    ),
 ]
 
 

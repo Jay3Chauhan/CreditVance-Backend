@@ -776,3 +776,51 @@ Future<HomeFeed> loadHome() async {
 ```
 
 Send the access token on this call when the user is signed in so member banners are included. If the token is missing or expired, call it again without the header; guests still get a full home.
+
+---
+
+## 10. Firebase push notifications
+
+The server now sends payment and statement pushes through Firebase Cloud Messaging, project `credvance-cb042`. Full setup, including the Flutter handler and the server file location, is in `docs/FIREBASE_NOTIFICATIONS.md`. The service-account key is not in git.
+
+Daily send time is 09:00 India time. Defaults are due-date pushes on the day, the day before, and 3 days before, and statement pushes on the day and the day before. The user can change those offsets. Product news stays off until they opt in.
+
+Android notification channel id: `creditvance_reminders`. Create it before asking for a token.
+
+### Endpoints
+
+| Method | Path | Auth | Purpose |
+| :--- | :--- | :--- | :--- |
+| POST | `/notifications/device-token` | Optional | Register the FCM token. Call after login and on token refresh. Body: `device_token`, `platform` (`android`, `ios`, `web`). |
+| DELETE | `/notifications/device-token` | Yes | Logout. Query: `device_token`. |
+| GET | `/notifications/preferences` | Yes | Current switches. Defaults until the user saves. |
+| PATCH | `/notifications/preferences` | Yes | Change any of `push_enabled`, `due_reminder_days`, `statement_reminder_days`, `product_updates`. `0` means that calendar day. |
+| POST | `/notifications/test` | Yes | One test push to this account. Use a settings button. |
+| GET | `/notifications/history` | Yes | Inbox, newest first. |
+| GET | `/notifications/status` | No | `project_id`, `configured`, `android_channel_id`. No secrets. |
+| GET | `/notifications/reminders` | Yes | Unchanged on-screen list. |
+
+Tap payload (all values are strings):
+
+```json
+{
+  "type": "due_date",
+  "route": "/wallet",
+  "user_card_id": "15",
+  "days_until_due": "0",
+  "days_until_statement": ""
+}
+```
+
+Open `route` when the user taps the notification. Reminders open `/wallet`.
+
+### What Flutter should do
+
+1. Add the Firebase **client** config for `credvance-cb042`. Do not ship the admin JSON.
+2. After login, `getToken()` and `POST /notifications/device-token` with the access token.
+3. Repeat that POST from `onTokenRefresh`.
+4. On logout, `DELETE /notifications/device-token`, then clear the session.
+5. Settings screen reads and patches `/notifications/preferences`, and offers `POST /notifications/test`.
+6. A card still needs `due_day` or `statement_day` on the wallet or there is nothing to remind about.
+
+`GET /meta/config` now includes feature flag `firebase_push`.

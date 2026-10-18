@@ -75,6 +75,16 @@ class ValidationError(AppException):
         )
 
 
+class ServiceUnavailableError(AppException):
+    def __init__(self, message: str = "Service unavailable", details: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="SERVICE_UNAVAILABLE",
+            details=details,
+        )
+
+
 class ExternalServiceError(AppException):
     def __init__(self, message: str = "Upstream service error", details: Optional[Any] = None):
         super().__init__(
@@ -124,6 +134,9 @@ async def validation_exception_handler(
     detail_str = "; ".join(error_messages) if error_messages else "Request validation failed"
     logger.warning(f"Validation error at {request.url.path}: {detail_str}")
 
+    from fastapi.encoders import jsonable_encoder
+    sanitized_errors = jsonable_encoder(exc.errors())
+
     return JSONResponse(
         status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
         content={
@@ -133,7 +146,7 @@ async def validation_exception_handler(
             "data": None,
             "error": {
                 "code": "VALIDATION_ERROR",
-                "details": exc.errors(),
+                "details": sanitized_errors,
             },
         },
     )

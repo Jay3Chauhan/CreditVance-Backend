@@ -21,6 +21,7 @@ apscheduler<4.0
 
 # Security & Authentication
 pyjwt>=2.9.0
+cryptography>=42.0.0
 bcrypt>=4.2.0
 python-multipart>=0.0.9
 

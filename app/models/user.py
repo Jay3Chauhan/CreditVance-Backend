@@ -8,6 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.notification_log import NotificationLog
+    from app.models.notification_preference import NotificationPreference
     from app.models.saved_card import SavedCard
     from app.models.user_card import UserCard
 
@@ -28,6 +30,12 @@ class User(Base, TimestampMixin):
     )
     saved_cards: Mapped[List["SavedCard"]] = relationship(
         "SavedCard", back_populates="user", cascade="all, delete-orphan"
+    )
+    notification_preference: Mapped[Optional["NotificationPreference"]] = relationship(
+        "NotificationPreference", back_populates="user", cascade="all, delete-orphan", uselist=False
+    )
+    notification_logs: Mapped[List["NotificationLog"]] = relationship(
+        "NotificationLog", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

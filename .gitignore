@@ -31,6 +31,10 @@ ENV/
 .env.local
 .env.*.local
 
+# Firebase service account keys. Never commit these.
+secrets/
+*firebase-adminsdk*.json
+
 # Databases & Cache
 *.sqlite3
 *.db

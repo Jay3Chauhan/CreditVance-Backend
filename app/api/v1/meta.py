@@ -57,6 +57,8 @@ async def get_app_config():
                 "saved_cards": True,
                 "wallet_insights": True,
                 "faq": True,
+                "firebase_push": True,
+                "sms_expense_tracking": True,
             },
         )
     )

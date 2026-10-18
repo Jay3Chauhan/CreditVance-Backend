@@ -33,6 +33,7 @@ class UserCard(Base, TimestampMixin):
     billing_cycle_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     statement_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     due_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    anniversary_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=1)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

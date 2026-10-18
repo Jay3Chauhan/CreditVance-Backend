@@ -776,3 +776,80 @@ Future<HomeFeed> loadHome() async {
 ```
 
 Send the access token on this call when the user is signed in so member banners are included. If the token is missing or expired, call it again without the header; guests still get a full home.
+
+---
+
+## 10. Firebase push notifications
+
+The server now sends payment and statement pushes through Firebase Cloud Messaging, project `credvance-cb042`. Full setup, including the Flutter handler and the server file location, is in `docs/FIREBASE_NOTIFICATIONS.md`. The service-account key is not in git.
+
+Daily send time is 09:00 India time. Defaults are due-date pushes on the day, the day before, and 3 days before, and statement pushes on the day and the day before. The user can change those offsets. Product news stays off until they opt in.
+
+Android notification channel id: `creditvance_reminders`. Create it before asking for a token.
+
+### Endpoints
+
+| Method | Path | Auth | Purpose |
+| :--- | :--- | :--- | :--- |
+| POST | `/notifications/device-token` | Optional | Register the FCM token. Call after login and on token refresh. Body: `device_token`, `platform` (`android`, `ios`, `web`). |
+| DELETE | `/notifications/device-token` | Yes | Logout. Query: `device_token`. |
+| GET | `/notifications/preferences` | Yes | Current switches. Defaults until the user saves. |
+| PATCH | `/notifications/preferences` | Yes | Change any of `push_enabled`, `due_reminder_days`, `statement_reminder_days`, `product_updates`. `0` means that calendar day. |
+| POST | `/notifications/test` | Yes | One test push to this account. Use a settings button. |
+| GET | `/notifications/history` | Yes | Inbox, newest first. |
+| GET | `/notifications/status` | No | `project_id`, `configured`, `android_channel_id`. No secrets. |
+| GET | `/notifications/reminders` | Yes | Unchanged on-screen list. |
+
+Tap payload (all values are strings):
+
+```json
+{
+  "type": "due_date",
+  "route": "/wallet",
+  "user_card_id": "15",
+  "days_until_due": "0",
+  "days_until_statement": ""
+}
+```
+
+Open `route` when the user taps the notification. Reminders open `/wallet`.
+
+### What Flutter should do
+
+1. Add the Firebase **client** config for `credvance-cb042`. Do not ship the admin JSON.
+2. After login, `getToken()` and `POST /notifications/device-token` with the access token.
+3. Repeat that POST from `onTokenRefresh`.
+4. On logout, `DELETE /notifications/device-token`, then clear the session.
+5. Settings screen reads and patches `/notifications/preferences`, and offers `POST /notifications/test`.
+6. A card still needs `due_day` or `statement_day` on the wallet or there is nothing to remind about.
+
+`GET /meta/config` now includes feature flag `firebase_push`.
+
+---
+
+## 11. SMS Expense Tracking Backend Integration
+
+The backend now fully implements the API contract specified in `docs/sms_expense_tracking.md`.
+It is completely zero-knowledge and DPDP Act 2023 / DPDP Rules 2025 compliant: raw SMS bodies and 16-digit PANs are strictly rejected and never persisted.
+
+### Backend Endpoints
+
+| Method | Path | Auth | Purpose |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/expenses/transactions/batch` | Bearer | Ingests up to 100 card transactions & 100 bills per batch. Accepts `Idempotency-Key` header. Returns `accepted`, `duplicates`, `rejected`, and `enrichments`. |
+| `GET` | `/api/v1/expenses/transactions` | Bearer | Paginated transactions (`since`, `cursor`, `limit`, `user_card_id`, `category`). |
+| `DELETE` | `/api/v1/expenses/transactions/{dedupe_hash}` | Bearer | Soft-deletes and tombstones a transaction so subsequent SMS rescans never re-import it. |
+| `DELETE` | `/api/v1/expenses/data` | Bearer | DPDP Right to Erasure (`202 Accepted`). Permanently wipes all SMS-derived records for the account. |
+| `PUT` | `/api/v1/expenses/consent` | Bearer | Append-only consent ledger (`granted`, `declined`, `withdrawn`). |
+| `GET` | `/api/v1/expenses/milestones` | Bearer | Spend milestone rules and fee-waiver thresholds linked to the user's active wallet cards. |
+| `GET` | `/api/v1/expenses/analytics/summary` | Bearer | Net spend, gross spend, refunds, and breakdowns by category, card, merchant, and monthly trend. |
+| `GET` | `/api/v1/expenses/sender-registry` | None | Public Indian bank DLT SMS header cores and body keywords. |
+
+### Key Interoperability Notes
+
+1. **Feature Flag**: `GET /api/v1/meta/config` returns `"sms_expense_tracking": true`.
+2. **Idempotency**: Pass `Idempotency-Key: <sha256 of sorted dedupe hashes>` in the batch upload header. Replayed batches return the cached response instantly.
+3. **Category Overrides**: If the user edits a transaction's category on device, sending `category_overridden: true` updates the server record and marks `category_source: "user"`.
+4. **Defence-in-Depth Security**: The backend rejects any payload field containing 12–19 consecutive digits (defence against PAN leakage).
+5. **Card Anniversary Month**: `user_cards` supports `anniversary_month` (1–12), enabling milestone windows to align with membership years.
+

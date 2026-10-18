@@ -88,8 +88,29 @@ Action `type`: `none`, `card`, `category`, `url`, `screen`, `promotion`. See `FR
 | :--- | :--- | :--- | :--- |
 | POST | `/advisor/recommend` | Optional | Body: `category_slug`, `spend_amount`, `is_international`, optional `card_ids`. Response includes `forex_markup_applied`. |
 | POST | `/calculator/annual` | No | Body: `card_id` or `cardId`, and `monthly_spend` or `monthlySpend`. |
-| POST | `/notifications/device-token` | Optional | Body: `device_token`, `platform` (`android`, `ios`, `web`). |
+| POST | `/notifications/device-token` | Optional | Body: `device_token`, `platform` (`android`, `ios`, `web`). Call after login and on token refresh. |
+| DELETE | `/notifications/device-token` | Yes | Query: `device_token`. Call on logout. |
+| GET | `/notifications/preferences` | Yes | Push switch, due-day offsets, statement offsets, product-news opt-in. |
+| PATCH | `/notifications/preferences` | Yes | Update any of those fields. `0` means the day itself. |
+| POST | `/notifications/test` | Yes | Sends one test push to this account's devices. |
+| GET | `/notifications/history` | Yes | Recent pushes, newest first. |
+| GET | `/notifications/status` | No | Whether Firebase is configured. No secrets. |
 | GET | `/notifications/reminders` | Yes | Statement and due reminders. `bank_name` is the real bank. |
+
+## SMS Expense Tracking (Structured Sync & Analytics)
+
+Zero-knowledge & DPDP compliant: SMS text bodies and full 16-digit PANs are strictly forbidden and rejected.
+
+| Method | Path | Auth | Purpose |
+| :--- | :--- | :--- | :--- |
+| POST | `/expenses/transactions/batch` | Yes | Ingest up to 100 card transactions & 100 bills per batch. Accepts `Idempotency-Key` header. Returns accepted, duplicate, rejected hashes and enrichments. |
+| GET | `/expenses/transactions` | Yes | Paginated active transactions for user. Supports `since`, `cursor`, `limit`, `user_card_id`, `category` filters. |
+| DELETE | `/expenses/transactions/{dedupe_hash}` | Yes | Soft-delete & tombstone. Subsequent SMS scans will not re-import this record. |
+| DELETE | `/expenses/data` | Yes | DPDP Right to Erasure (HTTP 202). Permanently wipes all SMS-derived records for this account. |
+| PUT | `/expenses/consent` | Yes | Append-only DPDP consent ledger (`granted`, `declined`, `withdrawn`). |
+| GET | `/expenses/milestones` | Yes | Milestone tracking rules & fee waivers for active wallet cards. |
+| GET | `/expenses/analytics/summary` | Yes | Net spend, gross spend, refunds, and breakdowns by category, card, merchant, and month. |
+| GET | `/expenses/sender-registry` | No | Public registry of Indian bank DLT header cores & SMS body keywords. |
 
 ## Meta
 
@@ -112,3 +133,4 @@ Admin sync and admin content require `X-Admin-API-Key`.
 | PATCH, DELETE | `/admin/content/banners/{id}` |
 | GET, POST | `/admin/content/promotions` |
 | PATCH, DELETE | `/admin/content/promotions/{id}` |
+| POST | `/admin/notifications/send` |

@@ -14,6 +14,16 @@ from app.models.device_token import DeviceToken
 from app.models.banner import Banner
 from app.models.promotion import Promotion
 from app.models.saved_card import SavedCard
+from app.models.notification_preference import NotificationPreference
+from app.models.notification_log import NotificationLog
+from app.models.expense import (
+    Merchant,
+    CardTransaction,
+    CardBill,
+    CardMilestoneRule,
+    ExpenseConsent,
+    ExpenseIdempotency,
+)
 
 __all__ = [
     "Base",
@@ -29,4 +39,12 @@ __all__ = [
     "Banner",
     "Promotion",
     "SavedCard",
+    "NotificationPreference",
+    "NotificationLog",
+    "Merchant",
+    "CardTransaction",
+    "CardBill",
+    "CardMilestoneRule",
+    "ExpenseConsent",
+    "ExpenseIdempotency",
 ]
