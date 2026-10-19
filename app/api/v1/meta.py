@@ -21,10 +21,10 @@ async def get_legal_links():
     """
     return ApiResponse(
         data=LegalMetaResponse(
-            privacy_policy_url="https://creditvance.app/privacy-policy",
-            terms_of_service_url="https://creditvance.app/terms-of-service",
+            privacy_policy_url="https://app.notion.com/p/Privacy-Policy-3fda57849d8e80549503fdaeaf1f8d3f",
+            terms_of_service_url="https://app.notion.com/p/Terms-N-Conditions-3fda57849d8e80188c4fcb708672d4de",
             contact_email="support@creditvance.app",
-            data_deletion_policy_url="https://creditvance.app/data-deletion",
+            data_deletion_policy_url="https://app.notion.com/p/Account-and-Data-Deletion-Policy-for-Credvert-3fda57849d8e80ed8dafe31046139ef3",
         )
     )
 
