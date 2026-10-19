@@ -177,6 +177,10 @@ class FirebasePushService:
                     "notification": {
                         "channel_id": ANDROID_CHANNEL_ID,
                         "sound": "default",
+                        "default_sound": True,
+                        "default_vibrate_timings": True,
+                        "notification_priority": "PRIORITY_MAX",
+                        "visibility": "PUBLIC",
                     },
                 },
                 "apns": {
